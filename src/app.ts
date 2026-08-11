@@ -12,6 +12,13 @@ app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
     if (/^http:\/\/localhost:\d+$/.test(origin)) return cb(null, true);
+    if (/\.up\.railway\.app$/.test(origin)) return cb(null, true);
+    if (process.env.CORS_ORIGINS) {
+      const allowed = process.env.CORS_ORIGINS.split(',')
+        .map((o) => o.trim())
+        .filter(Boolean);
+      if (allowed.includes(origin)) return cb(null, true);
+    }
     return cb(null, false);
   },
   credentials: true,
