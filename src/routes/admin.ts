@@ -52,7 +52,7 @@ router.patch('/users/:id/role', async (req, res) => {
     const { data, error } = await supabase
       .from('users')
       .update({ role_id: role.id })
-      .eq('id', Number(req.params.id))
+      .eq('id', String(req.params.id))
       .single();
     if (error) throw error;
     return success(res, { user: data });
@@ -66,7 +66,7 @@ router.patch('/restaurants/:id/approve', async (req, res) => {
     const { data, error } = await supabase
       .from('restaurants')
       .update({ status: 'active' })
-      .eq('id', Number(req.params.id))
+      .eq('id', String(req.params.id))
       .single();
     if (error) throw error;
     return success(res, { restaurant: data });
@@ -85,7 +85,7 @@ router.patch('/restaurants/:id', async (req, res) => {
     const { data, error } = await supabase
       .from('restaurants')
       .update({ status })
-      .eq('id', Number(req.params.id))
+      .eq('id', String(req.params.id))
       .single();
     if (error) throw error;
     return success(res, { restaurant: data });
@@ -112,7 +112,7 @@ router.patch('/riders/:id/approve', async (req, res) => {
     const { data, error } = await supabase
       .from('riders')
       .update({ is_verified: true })
-      .eq('id', Number(req.params.id))
+      .eq('id', String(req.params.id))
       .single();
     if (error) throw error;
     return success(res, { rider: data });
@@ -126,7 +126,7 @@ router.patch('/orders/:id', async (req, res) => {
     const { data, error } = await supabase
       .from('orders')
       .update(req.body)
-      .eq('id', Number(req.params.id))
+      .eq('id', String(req.params.id))
       .single();
     if (error) throw error;
     return success(res, { order: data });
