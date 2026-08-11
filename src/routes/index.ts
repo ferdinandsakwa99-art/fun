@@ -1,0 +1,46 @@
+import { Router } from 'express';
+import authRoutes from './auth';
+import usersRoutes from './users';
+import addressesRoutes from './addresses';
+import restaurantsRoutes from './restaurants';
+import menuCategoriesRoutes from './menu-categories';
+import menuItemsRoutes from './menu-items';
+import cartRoutes from './cart';
+import ordersRoutes from './orders';
+import deliveriesRoutes from './deliveries';
+import ridersRoutes from './riders';
+import paymentsRoutes from './payments';
+import reviewsRoutes from './reviews';
+import favoritesRoutes from './favorites';
+import notificationsRoutes from './notifications';
+import couponsRoutes from './coupons';
+import promotionsRoutes from './promotions';
+import adminRoutes from './admin';
+import walletsRoutes from './wallets';
+import earningsRoutes from './earnings';
+import recommendationsRoutes from './recommendations';
+
+const router = Router();
+
+router.use('/auth', authRoutes);
+router.use('/users', usersRoutes);
+router.use('/addresses', addressesRoutes);
+router.use('/restaurants', restaurantsRoutes);
+router.use('/menu-categories', menuCategoriesRoutes);
+router.use('/menu-items', menuItemsRoutes);
+router.use('/cart', cartRoutes);
+router.use('/orders', ordersRoutes);
+router.use('/deliveries', deliveriesRoutes);
+router.use('/riders', ridersRoutes);
+router.use('/payments', paymentsRoutes);
+router.use('/reviews', reviewsRoutes);
+router.use('/favorites', favoritesRoutes);
+router.use('/notifications', notificationsRoutes);
+router.use('/coupons', couponsRoutes);
+router.use('/promotions', promotionsRoutes);
+router.use('/admin', adminRoutes);
+router.use('/wallets', walletsRoutes);
+router.use('/earnings', earningsRoutes);
+router.use('/recommendations', recommendationsRoutes);
+
+export default router;
