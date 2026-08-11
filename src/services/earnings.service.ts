@@ -86,6 +86,39 @@ export const EarningsService = {
           result.rider = { amount };
         }
       }
+
+      // Cash-on-delivery: the rider collected the order total from the customer.
+      // Record the collection as a wallet debit (allowed to go negative), so the
+      // rider's balance shows -(total - delivery_fee). Already-paid orders are
+      // unaffected: their delivery fee credit nets against any negative balance.
+      if (String(order.payment_method || '').toLowerCase() === 'cash') {
+        const collected = round2(Number(order.total) || 0);
+        const colType = 'cash_collection';
+
+        if (collected > 0 && !(await this.hasSettled(String(order.id), colType))) {
+          const { data, error } = await supabase
+            .from('earnings')
+            .insert({
+              order_id: order.id,
+              rider_id: order.rider_id,
+              amount: collected,
+              platform_fee: 0,
+              type: colType,
+              status: 'collected',
+              earnings_date: new Date().toISOString(),
+              description: `Cash collected for order ${order.order_number ?? order.id}`,
+            })
+            .select()
+            .single();
+
+          if (error) {
+            if (!isDuplicate(error)) throw error;
+          } else {
+            await WalletService.debit({ rider_id: String(order.rider_id) }, collected);
+          }
+          result.rider_cash = { collected };
+        }
+      }
     }
 
     return result;

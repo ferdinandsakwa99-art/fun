@@ -24,6 +24,17 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    console.log(
+      `[request] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${Date.now() - start}ms)`,
+    );
+  });
+  next();
+});
+
 app.use('/api', routes);
 app.use(errorHandler);
 

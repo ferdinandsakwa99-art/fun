@@ -2,15 +2,14 @@ import { Router } from 'express';
 import EventService from '../services/event.service';
 import { RecommendationService } from '../services/recommendation.service';
 import auth from '../middleware/auth';
+import optionalAuth from '../middleware/optionalAuth';
+import { cachedFetch } from '../utils/cache';
 import { supabase } from '../config/supabase';
 
 const router = Router();
 
-// Protect all recommendation endpoints
-router.use(auth as any);
-
-// Record user behavioral events
-router.post('/events', async (req, res, next) => {
+// Protect event-recording endpoints
+router.post('/events', auth as any, async (req, res, next) => {
   try {
     const body = req.body || {};
     const userId = req.user?.id;
@@ -29,7 +28,7 @@ router.post('/events', async (req, res, next) => {
 });
 
 // Record recommendation impressions/clicks/orders for evaluation
-router.post('/impressions', async (req, res, next) => {
+router.post('/impressions', auth as any, async (req, res, next) => {
   try {
     const body = req.body || {};
     const userId = req.user?.id;
@@ -55,7 +54,7 @@ router.post('/impressions', async (req, res, next) => {
 });
 
 // Record promo events (impression, clicked, applied, used)
-router.post('/promo-events', async (req, res, next) => {
+router.post('/promo-events', auth as any, async (req, res, next) => {
   try {
     const body = req.body || {};
     const userId = req.user?.id;
@@ -78,18 +77,23 @@ router.post('/promo-events', async (req, res, next) => {
   }
 });
 
-// Get recommendations for the authenticated user
-router.get('/', async (req, res, next) => {
+// Get recommendations for the authenticated user (or popular picks for guests)
+router.get('/', optionalAuth as any, async (req, res, next) => {
   try {
-    const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ ok: false, error: 'Unauthorized' });
-
     const limit = req.query.limit ? Number(req.query.limit) : 12;
     const lat = req.query.lat ? Number(req.query.lat) : undefined;
     const lon = req.query.lon ? Number(req.query.lon) : undefined;
 
-    const recs = await RecommendationService.getRecommendations({ user_id: userId, lat, lon, limit });
-    res.json({ ok: true, ...recs });
+    if (req.user?.id) {
+      const recs = await RecommendationService.getRecommendations({ user_id: req.user.id, lat, lon, limit });
+      return res.json({ ok: true, ...recs });
+    }
+
+    const key = `recommendations:popular:${limit}:${lat ? lat.toFixed(3) : 'n'}:${lon ? lon.toFixed(3) : 'n'}`;
+    const recs = await cachedFetch<any>(key, 300, () =>
+      RecommendationService.getPopular({ lat, lon, limit }),
+    );
+    return res.json({ ok: true, ...recs });
   } catch (err) {
     next(err);
   }

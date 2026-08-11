@@ -30,6 +30,11 @@ export const OrderService = {
 
   async create(values: Record<string, any>) {
     const { items, ...orderValues } = values;
+    if (!orderValues.order_number) {
+      orderValues.order_number = `ORD-${Date.now().toString().slice(-6)}-${Math.floor(
+        1000 + Math.random() * 9000,
+      )}`;
+    }
     const { data, error } = await supabase.from('orders').insert(orderValues).select().single();
     if (error) throw error;
     const order = data as { id: string } | null;
@@ -234,5 +239,39 @@ export const OrderService = {
     }
 
     return { ...order, restaurant, dropoff, customer };
+  },
+
+  async enrichForCustomer(order: any) {
+    if (!order) return order;
+
+    let destination: any = null;
+    if (order.address_id) {
+      const { data } = await supabase
+        .from('addresses')
+        .select('latitude, longitude')
+        .eq('id', order.address_id)
+        .single();
+      destination = data;
+    }
+
+    let riderLocation: any = null;
+    if (order.rider_id) {
+      const { data } = await supabase
+        .from('riders')
+        .select('current_latitude, current_longitude')
+        .eq('id', order.rider_id)
+        .single();
+      riderLocation = data;
+    }
+
+    return {
+      ...order,
+      delivery: {
+        destination_latitude: destination?.latitude ?? null,
+        destination_longitude: destination?.longitude ?? null,
+        rider_latitude: riderLocation?.current_latitude ?? null,
+        rider_longitude: riderLocation?.current_longitude ?? null,
+      },
+    };
   },
 };

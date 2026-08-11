@@ -3,6 +3,7 @@ import auth from '../middleware/auth';
 import authorize from '../middleware/authorize';
 import { success, fail } from '../utils/response';
 import { RiderService } from '../services/rider.service';
+import { SocketService } from '../services/socket.service';
 import { supabase } from '../config/supabase';
 
 const router = Router();
@@ -97,10 +98,43 @@ router.post('/location', auth, authorize('RIDER'), async (req, res) => {
       .eq('id', rider.id);
     if (updateError) throw updateError;
 
+    broadcastRiderLocation(rider.id, {
+      latitude,
+      longitude,
+      heading: heading ?? null,
+      speed: speed ?? null,
+    });
+
     return success(res, { rider_id: rider.id, latitude, longitude });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to update rider location', 500);
   }
 });
+
+function broadcastRiderLocation(
+  riderId: string,
+  location: Record<string, unknown>,
+) {
+  void (async () => {
+    try {
+      const { data } = await supabase
+        .from('orders')
+        .select('id, user_id')
+        .eq('rider_id', riderId)
+        .in('status', ['picked_up', 'in_transit', 'arrived']);
+      const payload = { ...location, timestamp: new Date().toISOString() };
+      for (const order of data ?? []) {
+        if (order?.user_id) {
+          SocketService.emitToUser(order.user_id, 'rider_location', {
+            order_id: order.id,
+            ...payload,
+          });
+        }
+      }
+    } catch {
+      // Location broadcast is non-blocking; live tracking simply skips a tick.
+    }
+  })();
+}
 
 export default router;

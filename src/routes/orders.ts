@@ -2,6 +2,7 @@ import { Router } from 'express';
 import auth from '../middleware/auth';
 import authorize from '../middleware/authorize';
 import { success, fail } from '../utils/response';
+import { cachedFetch, invalidate } from '../utils/cache';
 import { OrderService } from '../services/order.service';
 import { RestaurantService } from '../services/restaurant.service';
 import { RiderService } from '../services/rider.service';
@@ -19,7 +20,14 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 router.post('/', auth, authorize('CUSTOMER'), async (req, res) => {
   const userId = String(req.user?.id);
   try {
-    const { delivery_fee, distance_km } = await DeliveryService.computeFeeForOrder(req.body);
+    const feeCacheKey = `delivery-fee:${String(req.body.restaurant_id || '')}:${String(
+      req.body.address_id || 'none',
+    )}`;
+    const { delivery_fee, distance_km } = await cachedFetch<any>(
+      feeCacheKey,
+      30,
+      () => DeliveryService.computeFeeForOrder(req.body),
+    );
     const subtotal = Number(req.body.subtotal) || 0;
     const tax = Number(req.body.tax) || 0;
     const discount = Number(req.body.discount) || 0;
@@ -31,6 +39,7 @@ router.post('/', auth, authorize('CUSTOMER'), async (req, res) => {
       total,
       user_id: userId,
     });
+    await invalidate('recommendations:popular:', 'home:');
     SocketService.emitOrderCreated(order);
     return success(res, { order, delivery_fee, distance_km });
   } catch (error: any) {
@@ -96,11 +105,13 @@ router.get('/:id', auth, async (req, res) => {
     }
 
     if (req.user?.role === 'ADMIN') {
-      return success(res, { order });
+      const enriched = await OrderService.enrichForCustomer(order);
+      return success(res, { order: enriched });
     }
 
     if (req.user?.role === 'CUSTOMER' && order.user_id === userId) {
-      return success(res, { order });
+      const enriched = await OrderService.enrichForCustomer(order);
+      return success(res, { order: enriched });
     }
 
     if (req.user?.role === 'RESTAURANT_OWNER') {

@@ -93,6 +93,101 @@ function getNairobiNow() {
 }
 
 export const RecommendationService = {
+  async getPopular(opts: { lat?: number; lon?: number; limit?: number }) {
+    const { lat, lon, limit = 12 } = opts;
+
+    // Global popularity signals (all users)
+    const [allEventsRes, orderItemsRes] = await Promise.all([
+      supabase.from('user_events').select('menu_item_id'),
+      supabase.from('order_items').select('menu_item_id, quantity'),
+    ]);
+    const allEvents = allEventsRes.data || [];
+    const eventPop: Record<string, number> = {};
+    (allEvents || []).forEach((e: any) => {
+      if (e.menu_item_id) eventPop[e.menu_item_id] = (eventPop[e.menu_item_id] || 0) + 1;
+    });
+
+    const orderItems = orderItemsRes.data || [];
+    const orderPop: Record<string, number> = {};
+    (orderItems || []).forEach((o: any) => {
+      if (o.menu_item_id) orderPop[o.menu_item_id] = (orderPop[o.menu_item_id] || 0) + Number(o.quantity || 1);
+    });
+
+    // Candidate items with their restaurants
+    const ITEM_SELECT =
+      'id, name, description, price, category_id, tags, is_available, restaurant:restaurants(id,name,latitude,longitude,average_rating,cover_image,delivery_fee)';
+    const ITEM_SELECT_NO_TAGS =
+      'id, name, description, price, category_id, is_available, restaurant:restaurants(id,name,latitude,longitude,average_rating,cover_image,delivery_fee)';
+
+    let items: any[] = [];
+    const itemsResult = await supabase
+      .from('menu_items')
+      .select(ITEM_SELECT)
+      .eq('is_available', true)
+      .limit(800);
+    if (itemsResult.error || !itemsResult.data || itemsResult.data.length === 0) {
+      const fallback = await supabase
+        .from('menu_items')
+        .select(ITEM_SELECT_NO_TAGS)
+        .eq('is_available', true)
+        .limit(800);
+      items = fallback.data || [];
+    } else {
+      items = itemsResult.data;
+    }
+    if (!items || items.length === 0) return { context: [], results: [] };
+
+    const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+      const toRad = (v: number) => (v * Math.PI) / 180;
+      const R = 6371;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    const distanceOf = (rest: any): number | null => {
+      if (!lat || !lon || !rest?.latitude || !rest?.longitude) return null;
+      return haversineKm(Number(lat), Number(lon), Number(rest.latitude), Number(rest.longitude));
+    };
+
+    let localPop: Record<string, number> = {};
+    if (lat && lon) {
+      const localIds = new Set<string>();
+      (items as any[]).forEach((it) => {
+        const d = distanceOf(it.restaurant);
+        if (d !== null && d <= LOCAL_RADIUS_KM) localIds.add(it.id);
+      });
+      localIds.forEach((id) => {
+        localPop[id] = (eventPop[id] || 0) + (orderPop[id] || 0) * 3;
+      });
+    }
+
+    const scored = (items as any[]).map((it) => {
+      const pop = (eventPop[it.id] || 0) + (orderPop[it.id] || 0) * 3;
+      const popSignal = lat && lon ? localPop[it.id] || 0 : pop;
+      const rating = Number(it.restaurant?.average_rating || 0);
+      const score = (lat && lon ? popSignal : pop) + rating * 4;
+      return { item: it, score, pop: pop || rating || 1 };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const final = scored.slice(0, limit);
+
+    return {
+      context: lat && lon ? ['nearby'] : [],
+      results: final.map((s) => ({
+        id: s.item.id,
+        name: s.item.name,
+        restaurant: s.item.restaurant,
+        tags: [],
+        score: s.score,
+      })),
+    };
+  },
+
   async updatePreferencesFromEvent(event: any) {
     // We only maintain category-level preference scores for now.
     if (!event.user_id) return;

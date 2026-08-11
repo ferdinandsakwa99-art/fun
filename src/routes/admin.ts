@@ -75,6 +75,38 @@ router.patch('/restaurants/:id/approve', async (req, res) => {
   }
 });
 
+router.patch('/restaurants/:id', async (req, res) => {
+  try {
+    const allowed = ['pending', 'approved', 'active', 'suspended', 'rejected'];
+    const { status } = req.body;
+    if (!allowed.includes(status)) {
+      return fail(res, 'Invalid restaurant status', 400);
+    }
+    const { data, error } = await supabase
+      .from('restaurants')
+      .update({ status })
+      .eq('id', Number(req.params.id))
+      .single();
+    if (error) throw error;
+    return success(res, { restaurant: data });
+  } catch (error: any) {
+    return fail(res, error.message || 'Unable to update restaurant', 500);
+  }
+});
+
+router.get('/riders', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('riders')
+      .select('*, profile:users(id, name, email, phone)')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return success(res, { riders: data });
+  } catch (error: any) {
+    return fail(res, error.message || 'Unable to load riders', 500);
+  }
+});
+
 router.patch('/riders/:id/approve', async (req, res) => {
   try {
     const { data, error } = await supabase

@@ -19,6 +19,7 @@ import adminRoutes from './admin';
 import walletsRoutes from './wallets';
 import earningsRoutes from './earnings';
 import recommendationsRoutes from './recommendations';
+import homeRoutes from './home';
 
 const router = Router();
 
@@ -42,5 +43,6 @@ router.use('/admin', adminRoutes);
 router.use('/wallets', walletsRoutes);
 router.use('/earnings', earningsRoutes);
 router.use('/recommendations', recommendationsRoutes);
+router.use('/home', homeRoutes);
 
 export default router;

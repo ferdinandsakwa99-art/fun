@@ -3,8 +3,10 @@ import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import { Router } from 'express';
 import auth from '../middleware/auth';
+import optionalAuth from '../middleware/optionalAuth';
 import authorize from '../middleware/authorize';
 import { success, fail } from '../utils/response';
+import { cachedFetch, invalidate } from '../utils/cache';
 import { supabase } from '../config/supabase';
 import { RestaurantService } from '../services/restaurant.service';
 
@@ -13,49 +15,80 @@ const BANNER_BUCKET = 'restaurant_banners';
 const COVER_BUCKET = 'restaurants_covers';
 const router = Router();
 
-router.get('/', auth, async (req, res) => {
+router.get('/', optionalAuth, async (req, res) => {
   try {
-    if (
-      req.user?.role === 'ADMIN' ||
-      req.user?.role === 'CUSTOMER' ||
-      req.user?.role === 'RIDER'
-    ) {
-      const { data, error } = await supabase.from('restaurants').select('*');
+    const rawPage = typeof req.query.page === 'string' ? parseInt(req.query.page, 10) : NaN;
+    const rawLimit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : NaN;
+    const paginate = req.query.page !== undefined || req.query.limit !== undefined;
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1;
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 20;
+
+    if (req.user?.role === 'RESTAURANT_OWNER') {
+      const userId = String(req.user?.id);
+      const restaurantIds = await RestaurantService.getOwnedRestaurantIds(userId);
+      const { data, error } = await supabase
+        .from('restaurants')
+        .select('*')
+        .in('id', restaurantIds);
       if (error) throw error;
       return success(res, { restaurants: data });
     }
 
-    const userId = String(req.user?.id);
-    const restaurantIds = await RestaurantService.getOwnedRestaurantIds(userId);
-    const { data, error } = await supabase
-      .from('restaurants')
-      .select('*')
-      .in('id', restaurantIds);
-    if (error) throw error;
-    return success(res, { restaurants: data });
+    const cacheKey = paginate
+      ? `restaurants:all:${page}:${limit}`
+      : 'restaurants:all';
+
+    const result = await cachedFetch<{ data: any[]; total?: number }>(
+      cacheKey,
+      300,
+      async () => {
+        if (paginate) {
+          const { data, count, error } = await supabase
+            .from('restaurants')
+            .select('*', { count: 'exact' })
+            .range((page - 1) * limit, page * limit - 1);
+          if (error) throw error;
+          return { data: data || [], total: count ?? undefined };
+        }
+        const { data, error } = await supabase.from('restaurants').select('*');
+        if (error) throw error;
+        return { data: data || [] };
+      },
+    );
+
+    return success(res, {
+      restaurants: result.data,
+      ...(paginate
+        ? { page, limit, total: result.total ?? result.data.length }
+        : {}),
+    });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to load restaurants', 500);
   }
 });
 
-router.get('/banners', auth, async (req, res) => {
+router.get('/banners', optionalAuth, async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('restaurant_banners')
-      .select('*')
-      .order('sort_order', { ascending: true });
-    if (error) throw error;
-    return success(res, { banners: data });
+    const banners = await cachedFetch<any[]>('restaurants:banners', 300, async () => {
+      const { data, error } = await supabase
+        .from('restaurant_banners')
+        .select('*')
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+      return data || [];
+    });
+    return success(res, { banners });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to load banners', 500);
   }
 });
 
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const restaurantId = String(req.params.id);
 
     if (
+      req.user &&
       req.user?.role !== 'ADMIN' &&
       req.user?.role !== 'CUSTOMER' &&
       req.user?.role !== 'RIDER'
@@ -69,13 +102,16 @@ router.get('/:id', auth, async (req, res) => {
       }
     }
 
-    const { data, error } = await supabase
-      .from('restaurants')
-      .select('*')
-      .eq('id', restaurantId)
-      .single();
-    if (error) throw error;
-    return success(res, { restaurant: data });
+    const restaurant = await cachedFetch<any>(`restaurants:id:${restaurantId}`, 300, async () => {
+      const { data, error } = await supabase
+        .from('restaurants')
+        .select('*')
+        .eq('id', restaurantId)
+        .single();
+      if (error) throw error;
+      return data;
+    });
+    return success(res, { restaurant });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to load restaurant', 500);
   }
@@ -98,21 +134,29 @@ router.post('/', auth, authorize('RESTAURANT_OWNER', 'ADMIN'), async (req, res) 
     });
     if (staffError) throw staffError;
 
+    await invalidate('restaurants:all', 'home:');
     return success(res, { restaurant: data });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to create restaurant', 500);
   }
 });
 
-router.get('/:id/banners', auth, async (req, res) => {
+router.get('/:id/banners', optionalAuth, async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('restaurant_banners')
-      .select('*')
-      .eq('restaurant_id', String(req.params.id))
-      .order('sort_order', { ascending: true });
-    if (error) throw error;
-    return success(res, { banners: data });
+    const banners = await cachedFetch<any[]>(
+      `restaurants:banners:${String(req.params.id)}`,
+      300,
+      async () => {
+        const { data, error } = await supabase
+          .from('restaurant_banners')
+          .select('*')
+          .eq('restaurant_id', String(req.params.id))
+          .order('sort_order', { ascending: true });
+        if (error) throw error;
+        return data || [];
+      },
+    );
+    return success(res, { banners });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to load banners', 500);
   }
@@ -159,6 +203,7 @@ router.post('/:id/banners', auth, authorize('RESTAURANT_OWNER', 'ADMIN'), upload
       .single();
     if (error) throw error;
 
+    await invalidate(`restaurants:banners:${restaurantId}`, 'restaurants:banners', 'home:');
     return success(res, { banner: data });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to upload banner', 500);
@@ -201,6 +246,7 @@ router.delete('/:id/banners/:bannerId', auth, authorize('RESTAURANT_OWNER', 'ADM
       .eq('id', String(req.params.bannerId));
     if (deleteError) throw deleteError;
 
+    await invalidate(`restaurants:banners:${restaurantId}`, 'restaurants:banners', 'home:');
     return success(res, { message: 'Banner deleted' });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to delete banner', 500);
@@ -242,6 +288,7 @@ router.post('/:id/cover', auth, authorize('RESTAURANT_OWNER', 'ADMIN'), upload.s
       .single();
     if (error) throw error;
 
+    await invalidate(`restaurants:id:${restaurantId}`, 'restaurants:all', 'home:');
     return success(res, { restaurant: data });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to upload cover image', 500);
@@ -257,6 +304,7 @@ router.patch('/:id', auth, authorize('RESTAURANT_OWNER', 'ADMIN'), async (req, r
       .select('*')
       .single();
     if (error) throw error;
+    await invalidate(`restaurants:id:${String(req.params.id)}`, 'restaurants:all', 'home:');
     return success(res, { restaurant: data });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to update restaurant', 500);
@@ -267,6 +315,7 @@ router.delete('/:id', auth, authorize('ADMIN'), async (req, res) => {
   try {
     const { error } = await supabase.from('restaurants').delete().eq('id', String(req.params.id));
     if (error) throw error;
+    await invalidate('restaurants:id:', 'restaurants:all', 'home:');
     return success(res, { message: 'Restaurant deleted' });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to delete restaurant', 500);

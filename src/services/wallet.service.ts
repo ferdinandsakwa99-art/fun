@@ -112,6 +112,25 @@ export const WalletService = {
     if (error) throw error;
     return data;
   },
+
+  async debit(owner: { restaurant_id?: string; rider_id?: string }, amount: number) {
+    if (!owner.restaurant_id && !owner.rider_id) {
+      throw new Error('A wallet owner is required');
+    }
+    const wallet = owner.restaurant_id
+      ? await this.getOrCreateRestaurant(owner.restaurant_id)
+      : await this.getOrCreateRider(owner.rider_id as string);
+
+    const newBalance = Math.round((Number(wallet.balance) - Number(amount)) * 100) / 100;
+    const { data, error } = await supabase
+      .from('wallets')
+      .update({ balance: newBalance })
+      .eq('id', wallet.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
 };
 
 export default WalletService;

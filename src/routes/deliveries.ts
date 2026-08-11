@@ -4,6 +4,7 @@ import authorize from '../middleware/authorize';
 import { success, fail } from '../utils/response';
 import { DeliveryService } from '../services/delivery.service';
 import { RiderService } from '../services/rider.service';
+import { SocketService } from '../services/socket.service';
 import { supabase } from '../config/supabase';
 
 const router = Router();
@@ -124,6 +125,33 @@ router.patch('/:id/location', auth, authorize('RIDER'), async (req, res) => {
       .eq('id', Number(req.params.id))
       .single();
     if (error) throw error;
+
+    try {
+      const riderId = delivery.rider_id as string | null;
+      if (riderId) {
+        const { data: activeOrders } = await supabase
+          .from('orders')
+          .select('id, user_id')
+          .eq('rider_id', riderId)
+          .in('status', ['picked_up', 'in_transit', 'arrived']);
+        const payload = {
+          latitude,
+          longitude,
+          timestamp: new Date().toISOString(),
+        };
+        for (const order of activeOrders ?? []) {
+          if (order?.user_id) {
+            SocketService.emitToUser(order.user_id, 'rider_location', {
+              order_id: order.id,
+              ...payload,
+            });
+          }
+        }
+      }
+    } catch {
+      // non-blocking live tracking
+    }
+
     return success(res, { delivery: data });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to update location', 500);
