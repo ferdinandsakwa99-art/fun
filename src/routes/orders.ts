@@ -20,6 +20,19 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 router.post('/', auth, authorize('CUSTOMER'), async (req, res) => {
   const userId = String(req.user?.id);
   try {
+    const { data: restaurant, error: restaurantError } = await supabase
+      .from('restaurants')
+      .select('is_open')
+      .eq('id', String(req.body.restaurant_id))
+      .single();
+    if (restaurantError) throw restaurantError;
+    if (restaurant && restaurant.is_open === false) {
+      return fail(
+        res,
+        'This restaurant is currently closed and is not accepting new orders.',
+        400,
+      );
+    }
     const feeCacheKey = `delivery-fee:${String(req.body.restaurant_id || '')}:${String(
       req.body.address_id || 'none',
     )}`;
