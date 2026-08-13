@@ -9,6 +9,7 @@ import { RiderService } from '../services/rider.service';
 import { DispatchService } from '../services/dispatch.service';
 import { DeliveryService } from '../services/delivery.service';
 import { EarningsService } from '../services/earnings.service';
+import { PromoService } from '../services/promo.service';
 import { SocketService } from '../services/socket.service';
 import { supabase } from '../config/supabase';
 
@@ -56,6 +57,18 @@ router.post('/', auth, authorize('CUSTOMER'), async (req, res) => {
     });
     await invalidate('recommendations:popular:', 'home:');
     SocketService.emitOrderCreated(order);
+
+    // Record coupon + linked promotion usage so per-user and order-cap limits
+    // are enforced. Best effort: a failure here must not block the order.
+    const couponId = req.body.coupon_id ? String(req.body.coupon_id) : null;
+    if (couponId) {
+      try {
+        await PromoService.recordRedemption(couponId, userId);
+      } catch (usageError: any) {
+        console.error('Failed to record coupon redemption:', usageError?.message || usageError);
+      }
+    }
+
     return success(res, { order, delivery_fee, rider_pay, distance_km });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to create order', 500);
