@@ -56,7 +56,11 @@ export const EarningsService = {
     }
 
     if (order?.rider_id) {
-      const amount = round2(Number(order.delivery_fee) || 0);
+      // Rider payout is computed once at order creation (60 + 20/km) and
+      // persisted as rider_pay, so settlement reuses the stored value instead
+      // of recomputing distance. Fall back to the customer delivery fee for
+      // orders created before rider_pay existed.
+      const amount = round2(Number(order.rider_pay ?? order.delivery_fee) || 0);
       const type = 'delivery_fee';
 
       if (amount > 0) {
@@ -129,7 +133,7 @@ export const EarningsService = {
     const ids = [...new Set(rows.map((row) => row.order_id).filter(Boolean))];
     const { data: orders, error } = await supabase
       .from('orders')
-      .select('id, order_number, status, created_at, delivered_at, subtotal, delivery_fee')
+      .select('id, order_number, status, created_at, delivered_at, subtotal, delivery_fee, rider_pay')
       .in('id', ids);
     if (error) throw error;
 

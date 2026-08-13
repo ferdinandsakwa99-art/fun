@@ -36,7 +36,7 @@ router.post('/', auth, authorize('CUSTOMER'), async (req, res) => {
     const feeCacheKey = `delivery-fee:${String(req.body.restaurant_id || '')}:${String(
       req.body.address_id || 'none',
     )}`;
-    const { delivery_fee, distance_km } = await cachedFetch<any>(
+    const { delivery_fee, rider_pay, distance_km } = await cachedFetch<any>(
       feeCacheKey,
       30,
       () => DeliveryService.computeFeeForOrder(req.body),
@@ -49,12 +49,14 @@ router.post('/', auth, authorize('CUSTOMER'), async (req, res) => {
     const order = await OrderService.create({
       ...req.body,
       delivery_fee,
+      rider_pay,
+      distance_km,
       total,
       user_id: userId,
     });
     await invalidate('recommendations:popular:', 'home:');
     SocketService.emitOrderCreated(order);
-    return success(res, { order, delivery_fee, distance_km });
+    return success(res, { order, delivery_fee, rider_pay, distance_km });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to create order', 500);
   }
