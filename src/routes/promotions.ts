@@ -164,7 +164,7 @@ router.patch('/:id', auth, authorize('RESTAURANT_OWNER', 'ADMIN'), async (req, r
 
     const { data: existing, error: fetchError } = await supabase
       .from('promotions')
-      .select('restaurant_id')
+      .select('restaurant_id, name, type')
       .eq('id', promotionId)
       .single();
     if (fetchError || !existing) return fail(res, 'Promotion not found', 404);
@@ -225,6 +225,9 @@ router.delete('/:id', auth, authorize('RESTAURANT_OWNER', 'ADMIN'), async (req, 
         return fail(res, 'Forbidden', 403);
       }
     }
+
+    await supabase.from('promo_events').delete().eq('promo_id', promotionId);
+    await supabase.from('coupons').update({ promotion_id: null }).eq('promotion_id', promotionId);
 
     const { error } = await supabase.from('promotions').delete().eq('id', promotionId);
     if (error) throw error;

@@ -247,6 +247,9 @@ router.delete('/:id', auth, authorize('RESTAURANT_OWNER', 'ADMIN'), async (req, 
       }
     }
 
+    await supabase.from('coupon_usages').delete().eq('coupon_id', couponId);
+    await supabase.from('orders').update({ coupon_id: null }).eq('coupon_id', couponId);
+
     const { error } = await supabase.from('coupons').delete().eq('id', couponId);
     if (error) throw error;
     return success(res, { message: 'Coupon deleted' });
