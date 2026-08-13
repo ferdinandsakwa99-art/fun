@@ -9,7 +9,7 @@ import { RestaurantService } from '../services/restaurant.service';
 
 const router = Router();
 
-const PROMO_TYPES = ['percent', 'fixed', 'free_delivery'];
+const PROMO_TYPES = ['percentage', 'fixed_amount', 'free_delivery'];
 
 const normalizePromo = (body: Record<string, any>) => {
   const promo: Record<string, any> = {};

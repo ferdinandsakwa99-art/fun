@@ -186,12 +186,12 @@ export const CartService = {
   async computeCouponDiscount(coupon: any, subtotal: number) {
     if (!coupon) return 0;
     const value = Number(coupon.value) || 0;
-    if (coupon.type === 'percent') {
+    if (coupon.type === 'percentage') {
       const discount = round2(subtotal * (value / 100));
       const maxDiscount = Number(coupon.max_discount) || 0;
       return maxDiscount > 0 ? Math.min(discount, maxDiscount) : discount;
     }
-    if (coupon.type === 'fixed') {
+    if (coupon.type === 'fixed_amount') {
       return Math.min(value, subtotal);
     }
     // free_delivery is applied to the delivery fee at order time
