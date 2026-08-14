@@ -7,6 +7,15 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 
 const isDuplicate = (error: any) => error?.code === '23505';
 
+// Cash-on-pickup: the customer pays the restaurant directly, so instead of
+// crediting the restaurant the platform collects its fee by debiting the
+// restaurant's wallet.
+const isCashPickup = (order: any) =>
+  order?.delivery_type === 'pickup' &&
+  ['cash', 'cash_on_delivery'].includes(
+    String(order?.payment_method || '').toLowerCase(),
+  );
+
 export const EarningsService = {
   async hasSettled(orderId: string, type: string) {
     const { data, error } = await supabase
@@ -25,7 +34,12 @@ export const EarningsService = {
     if (order?.restaurant_id) {
       const base = round2(Number(order.subtotal) || 0);
       const platform_fee = round2(base * PLATFORM_FEE_RATE);
-      const amount = round2(base - platform_fee);
+      const cashPickup = isCashPickup(order);
+      // Cash-on-pickup: the restaurant already has the cash from the customer,
+      // so the ledger shows the 16% platform fee deducted from their wallet.
+      // Everything else is the usual flow (restaurant credited the sale net of
+      // the platform fee).
+      const amount = cashPickup ? round2(-platform_fee) : round2(base - platform_fee);
       const type = 'order_sale';
 
       if (await this.hasSettled(String(order.id), type)) {
@@ -41,7 +55,9 @@ export const EarningsService = {
             type,
             status: 'credited',
             earnings_date: new Date().toISOString(),
-            description: `Order ${order.order_number ?? order.id}: ${PLATFORM_FEE_RATE * 100}% platform fee deducted`,
+            description: cashPickup
+              ? `Cash pickup order ${order.order_number ?? order.id}: ${PLATFORM_FEE_RATE * 100}% platform fee deducted from wallet`
+              : `Order ${order.order_number ?? order.id}: ${PLATFORM_FEE_RATE * 100}% platform fee deducted`,
           })
           .select()
           .single();
@@ -49,12 +65,19 @@ export const EarningsService = {
         if (error) {
           if (!isDuplicate(error)) throw error;
         } else {
-          await WalletService.credit({ restaurant_id: String(order.restaurant_id) }, amount);
-          if (platform_fee > 0) {
-            await WalletService.credit({ platform: true }, platform_fee);
+          if (cashPickup) {
+            if (platform_fee > 0) {
+              await WalletService.debit({ restaurant_id: String(order.restaurant_id) }, platform_fee);
+              await WalletService.credit({ platform: true }, platform_fee);
+            }
+          } else {
+            await WalletService.credit({ restaurant_id: String(order.restaurant_id) }, amount);
+            if (platform_fee > 0) {
+              await WalletService.credit({ platform: true }, platform_fee);
+            }
           }
         }
-        result.restaurant = { amount, platform_fee };
+        result.restaurant = { amount, platform_fee, cash_pickup: cashPickup };
       }
     }
 
