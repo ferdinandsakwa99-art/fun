@@ -74,23 +74,27 @@ export default async function auth(req: Request, res: Response, next: NextFuncti
           .select('id')
           .eq('user_id', localUser.id)
           .maybeSingle();
-        if (!rider?.id) {
+        let riderId: string | undefined = rider?.id;
+        if (!riderId) {
           const { data: createdRider, error: riderError } = await supabase
             .from('riders')
             .insert({ user_id: localUser.id, status: 'offline' })
             .select('id')
             .single();
           if (riderError) throw riderError;
-          const { data: wallet } = await supabase
+          riderId = createdRider.id;
+        }
+        // Ensure a wallet exists even when the rider row already existed (e.g.
+        // accounts created before wallet provisioning was added).
+        const { data: wallet } = await supabase
+          .from('wallets')
+          .select('id')
+          .eq('rider_id', riderId)
+          .maybeSingle();
+        if (!wallet?.id) {
+          await supabase
             .from('wallets')
-            .select('id')
-            .eq('rider_id', createdRider.id)
-            .maybeSingle();
-          if (!wallet?.id) {
-            await supabase
-              .from('wallets')
-              .insert({ rider_id: createdRider.id, currency: 'KES', balance: 0 });
-          }
+            .insert({ rider_id: riderId, currency: 'KES', balance: 0 });
         }
       } catch (e) {
         // Best-effort; the next authenticated request retries the creation.

@@ -94,7 +94,7 @@ router.get('/riders/:id', auth, async (req, res) => {
       if (!rider || String(rider.id) !== riderId) return fail(res, 'Forbidden', 403);
     }
 
-    const wallet = await WalletService.getByRiderId(riderId);
+    const wallet = await WalletService.getOrCreateRider(riderId);
     return success(res, { wallet });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to fetch rider wallet', 500);
