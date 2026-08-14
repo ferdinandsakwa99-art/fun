@@ -35,6 +35,7 @@ export const UserService = {
     password: string;
     role_id: number;
     gender?: string | null;
+    phone?: string | null;
   }) {
     const insertValues: Record<string, any> = {
       name: user.name,
@@ -43,6 +44,7 @@ export const UserService = {
       role_id: user.role_id,
     };
     if (user.gender) insertValues.gender = user.gender;
+    if (user.phone) insertValues.phone = user.phone;
 
     const { data, error } = await supabase
       .from('users')
@@ -51,16 +53,23 @@ export const UserService = {
       .single();
 
     if (error) {
-      // gender column may not exist yet (migration pending) -> retry without it
-      if (user.gender && (error.code === 'PGRST204' || String(error.message).includes('gender'))) {
+      // gender/phone columns may not exist yet (migration pending) -> retry without them
+      const hasOptional = Boolean(user.gender || user.phone);
+      const missingColumn =
+        error.code === 'PGRST204' ||
+        String(error.message).includes('gender') ||
+        String(error.message).includes('phone');
+      if (hasOptional && missingColumn) {
+        const retryValues: Record<string, any> = {
+          name: user.name,
+          email: user.email,
+          password: user.password,
+          role_id: user.role_id,
+        };
+        if (user.phone) retryValues.phone = user.phone;
         const retry = await supabase
           .from('users')
-          .insert({
-            name: user.name,
-            email: user.email,
-            password: user.password,
-            role_id: user.role_id,
-          })
+          .insert(retryValues)
           .select('*, role:roles(name,slug)')
           .single();
         if (retry.error) throw retry.error;

@@ -25,15 +25,16 @@ export default async function auth(req: Request, res: Response, next: NextFuncti
     let localUser = await UserService.findByEmail(authUser.email);
     if (!localUser) {
       // Create a local user record for Supabase-authenticated user
-      const name = (authUser.user_metadata && (authUser.user_metadata as any).full_name) ||
-        (authUser.user_metadata && (authUser.user_metadata as any).name) ||
+      const metadata = (authUser.user_metadata ?? {}) as Record<string, any>;
+      const name = metadata.full_name ||
+        metadata.name ||
         (authUser.email ? authUser.email.split('@')[0] : '');
+      const phone = metadata.phone || null;
 
-      let roleSlug = (authUser.user_metadata && (authUser.user_metadata as any).role) || 'CUSTOMER';
+      let roleSlug = metadata.role || 'CUSTOMER';
       roleSlug = String(roleSlug).toUpperCase();
 
-      const gender =
-        (authUser.user_metadata && (authUser.user_metadata as any).gender) || null;
+      const gender = metadata.gender || null;
 
       let roleRecord = null;
       try {
@@ -55,24 +56,44 @@ export default async function auth(req: Request, res: Response, next: NextFuncti
         password: hashed,
         role_id: roleRecord.id,
         gender,
+        phone,
       });
 
       localUser = created;
+    }
 
-      // If this user should be a rider, create a riders row linking to the new user
+    // Ensure the RIDER resource set (riders + wallet) exists idempotently.
+    // Signup used to insert these from the client with the anon key, which
+    // could be rejected and leave a half-created account (auth user + users
+    // row but no riders/wallets row). Creating them here with the service role
+    // both prevents and heals that state.
+    if (localUser.role?.slug === 'RIDER') {
       try {
-        if (roleRecord.slug === 'RIDER') {
-          const { data: rider } = await supabase
+        const { data: rider } = await supabase
+          .from('riders')
+          .select('id')
+          .eq('user_id', localUser.id)
+          .maybeSingle();
+        if (!rider?.id) {
+          const { data: createdRider, error: riderError } = await supabase
             .from('riders')
-            .insert({ user_id: created.id, status: 'offline' })
+            .insert({ user_id: localUser.id, status: 'offline' })
             .select('id')
             .single();
-          if (rider?.id) {
-            await supabase.from('wallets').insert({ rider_id: rider.id });
+          if (riderError) throw riderError;
+          const { data: wallet } = await supabase
+            .from('wallets')
+            .select('id')
+            .eq('rider_id', createdRider.id)
+            .maybeSingle();
+          if (!wallet?.id) {
+            await supabase
+              .from('wallets')
+              .insert({ rider_id: createdRider.id, currency: 'KES', balance: 0 });
           }
         }
       } catch (e) {
-        // ignore rider creation errors
+        // Best-effort; the next authenticated request retries the creation.
       }
     }
 
