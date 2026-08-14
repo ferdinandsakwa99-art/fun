@@ -324,7 +324,7 @@ router.patch('/:id/status', auth, async (req, res) => {
   const userId = String(req.user?.id);
   const requestedStatus = normalizeStatus(String(req.body.status || ''));
   const restaurantStatuses = ['pending', 'accepted', 'preparing', 'ready'];
-  const restaurantPickupStatuses = [...restaurantStatuses, 'picked_up'];
+  const restaurantPickupStatuses = [...restaurantStatuses, 'picked_up', 'delivered'];
   const riderStatuses = ['ready', 'picked_up', 'in_transit', 'arrived', 'delivered'];
 
   try {
@@ -334,12 +334,16 @@ router.patch('/:id/status', auth, async (req, res) => {
     }
 
     if (req.user?.role === 'CUSTOMER') {
-      const allowed =
-        order.delivery_type === 'pickup'
-          ? ['cancelled', 'picked_up']
-          : ['cancelled'];
-      if (!allowed.includes(requestedStatus)) {
-        return fail(res, 'Customers may only cancel orders', 403);
+      if (requestedStatus === 'delivered') {
+        // Pickup orders are complete the moment the customer collects them.
+        if (order.delivery_type !== 'pickup') {
+          return fail(res, 'Only pickup orders may be completed by the customer', 403);
+        }
+        if (order.status !== 'ready') {
+          return fail(res, 'The order must be ready before confirming pickup', 400);
+        }
+      } else if (requestedStatus !== 'cancelled') {
+        return fail(res, 'Customers may only cancel orders or confirm pickup', 403);
       }
       if (order.user_id !== userId) {
         return fail(res, 'Forbidden', 403);
