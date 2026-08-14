@@ -83,7 +83,8 @@ router.get('/summary', auth, async (req, res) => {
         .order('created_at', { ascending: false });
       if (error) throw error;
       const entries = await EarningsService.attachOrders(data);
-      return success(res, { summary: EarningsService.summarize(entries), entries });
+      const wallet = await WalletService.getOrCreatePlatform();
+      return success(res, { summary: EarningsService.summarize(entries), wallet, entries });
     }
 
     return fail(res, 'Forbidden', 403);

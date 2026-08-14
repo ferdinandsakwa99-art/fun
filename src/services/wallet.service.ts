@@ -49,6 +49,27 @@ export const WalletService = {
     return data;
   },
 
+  async getPlatform() {
+    const { data, error } = await supabase.from('wallets').select('*').eq('is_platform', true).single();
+    if (error && error.code !== 'PGRST116') throw error;
+    return data || null;
+  },
+
+  async getOrCreatePlatform() {
+    const existing = await this.getPlatform();
+    if (existing) return existing;
+    const { data, error } = await supabase
+      .from('wallets')
+      .insert({ is_platform: true, currency: 'KES', balance: 0 })
+      .select()
+      .single();
+    if (error) {
+      if (error.code === '23505') return this.getPlatform();
+      throw error;
+    }
+    return data;
+  },
+
   async getOrCreateClient(userId: string) {
     const existing = await this.getByUserId(userId);
     if (existing) return existing;
@@ -94,13 +115,15 @@ export const WalletService = {
     return data;
   },
 
-  async credit(owner: { restaurant_id?: string; rider_id?: string }, amount: number) {
-    if (!owner.restaurant_id && !owner.rider_id) {
+  async credit(owner: { restaurant_id?: string; rider_id?: string; platform?: boolean }, amount: number) {
+    if (!owner.restaurant_id && !owner.rider_id && !owner.platform) {
       throw new Error('A wallet owner is required');
     }
-    const wallet = owner.restaurant_id
-      ? await this.getOrCreateRestaurant(owner.restaurant_id)
-      : await this.getOrCreateRider(owner.rider_id as string);
+    const wallet = owner.platform
+      ? await this.getOrCreatePlatform()
+      : owner.restaurant_id
+        ? await this.getOrCreateRestaurant(owner.restaurant_id)
+        : await this.getOrCreateRider(owner.rider_id as string);
 
     const newBalance = Math.round((Number(wallet.balance) + Number(amount)) * 100) / 100;
     const { data, error } = await supabase
@@ -113,13 +136,15 @@ export const WalletService = {
     return data;
   },
 
-  async debit(owner: { restaurant_id?: string; rider_id?: string }, amount: number) {
-    if (!owner.restaurant_id && !owner.rider_id) {
+  async debit(owner: { restaurant_id?: string; rider_id?: string; platform?: boolean }, amount: number) {
+    if (!owner.restaurant_id && !owner.rider_id && !owner.platform) {
       throw new Error('A wallet owner is required');
     }
-    const wallet = owner.restaurant_id
-      ? await this.getOrCreateRestaurant(owner.restaurant_id)
-      : await this.getOrCreateRider(owner.rider_id as string);
+    const wallet = owner.platform
+      ? await this.getOrCreatePlatform()
+      : owner.restaurant_id
+        ? await this.getOrCreateRestaurant(owner.restaurant_id)
+        : await this.getOrCreateRider(owner.rider_id as string);
 
     const newBalance = Math.round((Number(wallet.balance) - Number(amount)) * 100) / 100;
     const { data, error } = await supabase

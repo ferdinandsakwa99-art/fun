@@ -62,7 +62,14 @@ export default async function auth(req: Request, res: Response, next: NextFuncti
       // If this user should be a rider, create a riders row linking to the new user
       try {
         if (roleRecord.slug === 'RIDER') {
-          await supabase.from('riders').insert({ user_id: created.id });
+          const { data: rider } = await supabase
+            .from('riders')
+            .insert({ user_id: created.id, status: 'offline' })
+            .select('id')
+            .single();
+          if (rider?.id) {
+            await supabase.from('wallets').insert({ rider_id: rider.id });
+          }
         }
       } catch (e) {
         // ignore rider creation errors

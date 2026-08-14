@@ -50,6 +50,9 @@ export const EarningsService = {
           if (!isDuplicate(error)) throw error;
         } else {
           await WalletService.credit({ restaurant_id: String(order.restaurant_id) }, amount);
+          if (platform_fee > 0) {
+            await WalletService.credit({ platform: true }, platform_fee);
+          }
         }
         result.restaurant = { amount, platform_fee };
       }
