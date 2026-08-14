@@ -11,16 +11,18 @@ router.use(auth, authorize('ADMIN'));
 
 router.get('/dashboard', async (req, res) => {
   try {
-    const usersCount = await supabase.from('users').select('id', { count: 'exact' }).maybeSingle();
-    const restaurantsCount = await supabase.from('restaurants').select('id', { count: 'exact' }).maybeSingle();
-    const ordersCount = await supabase.from('orders').select('id', { count: 'exact' }).maybeSingle();
-    const ridersCount = await supabase.from('riders').select('id', { count: 'exact' }).maybeSingle();
+    const [{ count: users }, { count: restaurants }, { count: orders }, { count: riders }] = await Promise.all([
+      supabase.from('users').select('*', { count: 'exact', head: true }),
+      supabase.from('restaurants').select('*', { count: 'exact', head: true }),
+      supabase.from('orders').select('*', { count: 'exact', head: true }),
+      supabase.from('riders').select('*', { count: 'exact', head: true }),
+    ]);
     return success(res, {
       dashboard: {
-        users: usersCount.count,
-        restaurants: restaurantsCount.count,
-        orders: ordersCount.count,
-        riders: ridersCount.count,
+        users: users ?? 0,
+        restaurants: restaurants ?? 0,
+        orders: orders ?? 0,
+        riders: riders ?? 0,
       },
     });
   } catch (error: any) {
