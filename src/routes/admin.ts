@@ -75,6 +75,27 @@ router.patch('/restaurants/:id/approve', async (req, res) => {
   }
 });
 
+router.patch('/restaurants/:id/documents/reset', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('restaurants')
+      .update({
+        status: 'pending',
+        documents_submitted_at: null,
+        id_number: null,
+        id_front_url: null,
+        id_back_url: null,
+      })
+      .eq('id', String(req.params.id))
+      .select('*')
+      .single();
+    if (error) throw error;
+    return success(res, { restaurant: data });
+  } catch (error: any) {
+    return fail(res, error.message || 'Unable to reset restaurant documents', 500);
+  }
+});
+
 router.patch('/restaurants/:id', async (req, res) => {
   try {
     const allowed = ['pending', 'approved', 'active', 'suspended', 'rejected'];

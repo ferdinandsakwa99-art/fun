@@ -122,7 +122,7 @@ router.post('/', auth, authorize('RESTAURANT_OWNER', 'ADMIN'), async (req, res) 
     const ownerId = String(req.user?.id);
     const { data, error } = await supabase
       .from('restaurants')
-      .insert({ ...req.body, owner_id: ownerId })
+      .insert({ ...req.body, owner_id: ownerId, status: 'pending' })
       .select('*')
       .single();
     if (error) throw error;
@@ -138,6 +138,59 @@ router.post('/', auth, authorize('RESTAURANT_OWNER', 'ADMIN'), async (req, res) 
     return success(res, { restaurant: data });
   } catch (error: any) {
     return fail(res, error.message || 'Unable to create restaurant', 500);
+  }
+});
+
+router.patch('/:id/documents', auth, authorize('RESTAURANT_OWNER', 'ADMIN'), async (req, res) => {
+  try {
+    const restaurantId = String(req.params.id);
+    if (req.user?.role !== 'ADMIN') {
+      const allowed = await RestaurantService.isOwnerForRestaurant(
+        String(req.user?.id),
+        restaurantId,
+      );
+      if (!allowed) return fail(res, 'Forbidden', 403);
+    }
+
+    const documentKeys = [
+      'id_number',
+      'id_front_url',
+      'id_back_url',
+      'documents_submitted_at',
+    ];
+    const isDocumentSubmit = documentKeys.some(
+      (key) => req.body?.[key] !== undefined,
+    );
+    if (!isDocumentSubmit) {
+      return fail(res, 'No document fields provided', 400);
+    }
+
+    const { data: restaurant } = await supabase
+      .from('restaurants')
+      .select('documents_submitted_at')
+      .eq('id', restaurantId)
+      .single();
+    if (restaurant?.documents_submitted_at) {
+      return fail(res, 'Documents have already been submitted', 409);
+    }
+
+    const update: Record<string, any> = { status: 'pending' };
+    for (const key of documentKeys) {
+      if (req.body?.[key] !== undefined) update[key] = req.body[key];
+    }
+
+    const { data, error } = await supabase
+      .from('restaurants')
+      .update(update)
+      .eq('id', restaurantId)
+      .select('*')
+      .single();
+    if (error) throw error;
+
+    await invalidate(`restaurants:id:${restaurantId}`, 'restaurants:all', 'home:');
+    return success(res, { restaurant: data });
+  } catch (error: any) {
+    return fail(res, error.message || 'Unable to submit restaurant documents', 500);
   }
 });
 
