@@ -12,6 +12,7 @@ export function initSockets(httpServer: HttpServer) {
       origin: (origin: any, cb: any) => {
         if (!origin) return cb(null, true);
         if (/^http:\/\/localhost:\d+$/.test(origin)) return cb(null, true);
+        if (origin === 'https://takead.vercel.app') return cb(null, true);
         return cb(null, false);
       },
       credentials: true,
