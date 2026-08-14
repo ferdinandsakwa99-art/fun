@@ -26,6 +26,23 @@ router.patch('/me', auth, authorize('RIDER'), async (req, res) => {
     if (!rider) {
       return fail(res, 'Rider profile not found', 404);
     }
+    const documentKeys = [
+      'id_number',
+      'selfie_url',
+      'id_front_url',
+      'id_back_url',
+      'good_conduct_url',
+      'insurance_url',
+      'driving_license_url',
+      'license_number',
+      'documents_submitted_at',
+    ];
+    const isDocumentSubmit = documentKeys.some(
+      (key) => req.body?.[key] !== undefined,
+    );
+    if (isDocumentSubmit && rider.documents_submitted_at) {
+      return fail(res, 'Documents have already been submitted', 409);
+    }
     const allowed = [
       'vehicle_type',
       'vehicle_number',

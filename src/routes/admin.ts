@@ -121,6 +121,31 @@ router.patch('/riders/:id/approve', async (req, res) => {
   }
 });
 
+router.patch('/riders/:id/documents/reset', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('riders')
+      .update({
+        is_verified: false,
+        documents_submitted_at: null,
+        id_number: null,
+        selfie_url: null,
+        id_front_url: null,
+        id_back_url: null,
+        good_conduct_url: null,
+        insurance_url: null,
+        driving_license_url: null,
+        license_number: null,
+      })
+      .eq('id', String(req.params.id))
+      .single();
+    if (error) throw error;
+    return success(res, { rider: data });
+  } catch (error: any) {
+    return fail(res, error.message || 'Unable to reset rider documents', 500);
+  }
+});
+
 router.patch('/orders/:id', async (req, res) => {
   try {
     const { data, error } = await supabase
