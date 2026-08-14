@@ -34,14 +34,22 @@ router.post('/', auth, authorize('CUSTOMER'), async (req, res) => {
         400,
       );
     }
-    const feeCacheKey = `delivery-fee:${String(req.body.restaurant_id || '')}:${String(
-      req.body.address_id || 'none',
-    )}`;
-    const { delivery_fee, rider_pay, distance_km } = await cachedFetch<any>(
-      feeCacheKey,
-      30,
-      () => DeliveryService.computeFeeForOrder(req.body),
-    );
+    const deliveryType = req.body.delivery_type === 'pickup' ? 'pickup' : 'delivery';
+
+    let delivery_fee = 0;
+    let rider_pay = 0;
+    let distance_km = 0;
+    if (deliveryType === 'delivery') {
+      const feeCacheKey = `delivery-fee:${String(req.body.restaurant_id || '')}:${String(
+        req.body.address_id || 'none',
+      )}`;
+      const fee = await cachedFetch<any>(feeCacheKey, 30, () =>
+        DeliveryService.computeFeeForOrder(req.body),
+      );
+      delivery_fee = Number(fee?.delivery_fee) || 0;
+      rider_pay = Number(fee?.rider_pay) || 0;
+      distance_km = Number(fee?.distance_km) || 0;
+    }
     const subtotal = Number(req.body.subtotal) || 0;
     const tax = Number(req.body.tax) || 0;
     const discount = Number(req.body.discount) || 0;
@@ -49,6 +57,7 @@ router.post('/', auth, authorize('CUSTOMER'), async (req, res) => {
 
     const order = await OrderService.create({
       ...req.body,
+      delivery_type: deliveryType,
       delivery_fee,
       rider_pay,
       distance_km,
@@ -300,6 +309,10 @@ router.post('/:id/dispatch', auth, async (req, res) => {
       return fail(res, 'Forbidden', 403);
     }
 
+    if (order.delivery_type === 'pickup') {
+      return fail(res, 'Pickup orders are not dispatched to riders', 400);
+    }
+
     const result = await DispatchService.dispatchForOrder(order);
     return success(res, result);
   } catch (error: any) {
@@ -311,6 +324,7 @@ router.patch('/:id/status', auth, async (req, res) => {
   const userId = String(req.user?.id);
   const requestedStatus = normalizeStatus(String(req.body.status || ''));
   const restaurantStatuses = ['pending', 'accepted', 'preparing', 'ready'];
+  const restaurantPickupStatuses = [...restaurantStatuses, 'picked_up'];
   const riderStatuses = ['ready', 'picked_up', 'in_transit', 'arrived', 'delivered'];
 
   try {
@@ -320,7 +334,11 @@ router.patch('/:id/status', auth, async (req, res) => {
     }
 
     if (req.user?.role === 'CUSTOMER') {
-      if (requestedStatus !== 'cancelled') {
+      const allowed =
+        order.delivery_type === 'pickup'
+          ? ['cancelled', 'picked_up']
+          : ['cancelled'];
+      if (!allowed.includes(requestedStatus)) {
         return fail(res, 'Customers may only cancel orders', 403);
       }
       if (order.user_id !== userId) {
@@ -329,7 +347,11 @@ router.patch('/:id/status', auth, async (req, res) => {
     }
 
     if (req.user?.role === 'RESTAURANT_OWNER') {
-      if (!restaurantStatuses.includes(requestedStatus)) {
+      const allowed =
+        order.delivery_type === 'pickup'
+          ? restaurantPickupStatuses
+          : restaurantStatuses;
+      if (!allowed.includes(requestedStatus)) {
         return fail(res, 'Invalid status for restaurant', 403);
       }
       const restaurantIds = await RestaurantService.getOwnedRestaurantIds(userId);
@@ -354,6 +376,11 @@ router.patch('/:id/status', auth, async (req, res) => {
     const enriched = await OrderService.enrichForRider(updated);
 
     if (requestedStatus === 'ready') {
+      // Pickup orders are collected by the customer, so no rider is dispatched.
+      if (updated.delivery_type === 'pickup') {
+        SocketService.emitOrderUpdated(updated);
+        return success(res, { order: enriched, dispatch: null });
+      }
       try {
         const dispatchResult = await DispatchService.dispatchForOrder(updated);
         if (dispatchResult.assigned) {
@@ -365,6 +392,21 @@ router.patch('/:id/status', auth, async (req, res) => {
         return success(res, {
           order: enriched,
           dispatch: { assigned: false, reason: dispatchError.message || 'Dispatch failed' },
+        });
+      }
+    }
+
+    // Pickup orders are complete once the customer collects them. This is the
+    // pickup equivalent of 'delivered' and triggers restaurant settlement.
+    if (requestedStatus === 'picked_up' && updated.delivery_type === 'pickup') {
+      try {
+        const settlement = await EarningsService.settleOrder(updated);
+        SocketService.emitOrderUpdated(updated);
+        return success(res, { order: enriched, settlement });
+      } catch (settlementError: any) {
+        return success(res, {
+          order: enriched,
+          settlement: { error: settlementError.message || 'Settlement failed' },
         });
       }
     }
