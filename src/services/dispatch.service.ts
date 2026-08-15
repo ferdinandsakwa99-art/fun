@@ -132,11 +132,13 @@ export const DispatchService = {
     const { restaurant, dropoff } = await this.getOrderGeo(order);
 
     if (!restaurant || restaurant.latitude == null || restaurant.longitude == null) {
+      await this.recordAttempt(order.id);
       return { assigned: false, reason: 'Restaurant location unavailable' };
     }
 
     const riders = await this.findEligibleRiders();
     if (riders.length === 0) {
+      await this.recordAttempt(order.id);
       return { assigned: false, reason: 'No eligible riders available' };
     }
 
@@ -170,6 +172,8 @@ export const DispatchService = {
         dispatched_at: new Date().toISOString(),
         dispatch_score: best.score,
         dispatch_note: 'Auto-dispatched',
+        dispatch_attempts: (Number(order.dispatch_attempts) || 0) + 1,
+        last_dispatch_attempt_at: new Date().toISOString(),
       })
       .eq('id', order.id)
       .select('*')
@@ -196,6 +200,23 @@ export const DispatchService = {
         delivery_eta: c.deliveryEta,
       })),
     };
+  },
+
+  async recordAttempt(orderId: string) {
+    const { data: current } = await supabase
+      .from('orders')
+      .select('dispatch_attempts, last_dispatch_attempt_at')
+      .eq('id', orderId)
+      .single();
+
+    const attempts = (Number(current?.dispatch_attempts) || 0) + 1;
+    await supabase
+      .from('orders')
+      .update({
+        dispatch_attempts: attempts,
+        last_dispatch_attempt_at: new Date().toISOString(),
+      })
+      .eq('id', orderId);
   },
 
   async getOrderGeo(order: any): Promise<{
