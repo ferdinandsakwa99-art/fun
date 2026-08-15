@@ -9,6 +9,7 @@ import { RiderService } from '../services/rider.service';
 import { DispatchService } from '../services/dispatch.service';
 import { DeliveryService } from '../services/delivery.service';
 import { EarningsService } from '../services/earnings.service';
+import { PaymentService } from '../services/payment.service';
 import { PromoService } from '../services/promo.service';
 import { SocketService } from '../services/socket.service';
 import { supabase } from '../config/supabase';
@@ -405,6 +406,7 @@ router.patch('/:id/status', auth, async (req, res) => {
     if (requestedStatus === 'picked_up' && updated.delivery_type === 'pickup') {
       try {
         const settlement = await EarningsService.settleOrder(updated);
+        await PaymentService.markOrderCompleted(String(updated.id));
         SocketService.emitOrderUpdated(updated);
         return success(res, { order: enriched, settlement });
       } catch (settlementError: any) {
@@ -433,6 +435,7 @@ router.patch('/:id/status', auth, async (req, res) => {
 
       try {
         const settlement = await EarningsService.settleOrder(updated);
+        await PaymentService.markOrderCompleted(String(updated.id));
         SocketService.emitOrderUpdated(updated);
         return success(res, { order: enriched, settlement });
       } catch (settlementError: any) {

@@ -45,4 +45,17 @@ export const PaymentService = {
     }
     return data;
   },
+
+  async markOrderCompleted(orderId: string) {
+    const { data, error } = await supabase
+      .from('payments')
+      .update({ payment_status: 'completed' })
+      .eq('order_id', orderId)
+      .in('payment_status', ['pending', 'processing', 'completed'])
+      .select();
+    if (error) {
+      throw error;
+    }
+    return data;
+  },
 };
