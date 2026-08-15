@@ -20,6 +20,13 @@ router.get('/', auth, authorize('CUSTOMER'), async (req, res) => {
 router.post('/', auth, authorize('CUSTOMER'), async (req, res) => {
   try {
     const userId = String(req.user?.id);
+    // Only one address can be the default; clear any existing default first.
+    if (req.body.is_default === true) {
+      await supabase
+        .from('addresses')
+        .update({ is_default: false })
+        .eq('user_id', userId);
+    }
     const payload = { ...req.body, user_id: userId };
     const { data, error } = await supabase.from('addresses').insert(payload).select().single();
     if (error) throw error;
@@ -40,6 +47,17 @@ router.patch('/:id', auth, authorize('CUSTOMER'), async (req, res) => {
     if (fetchError) throw fetchError;
     if (existing.user_id !== userId) {
       return fail(res, 'Forbidden', 403);
+    }
+
+    // Only one address can be the default. When a new one becomes the default,
+    // clear the flag on the user's other addresses so the UI (and the header
+    // location picker) doesn't end up with multiple "current" locations.
+    if (req.body.is_default === true) {
+      await supabase
+        .from('addresses')
+        .update({ is_default: false })
+        .eq('user_id', userId)
+        .neq('id', String(req.params.id));
     }
 
     const { data, error } = await supabase
